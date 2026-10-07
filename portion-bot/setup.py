@@ -3,11 +3,22 @@ from getpass import getpass
 from pathlib import Path
 import os
 import re
+import subprocess
+import sys
 
 
-def ask_valid(prompt, validator, hint, secret=False):
+def ask_valid(prompt, validator, hint, secret=False, clipboard=False):
     while True:
-        value = (getpass(prompt) if secret else input(prompt)).strip()
+        if secret and clipboard:
+            input(prompt + 'Скопируй ключ, затем нажми Enter здесь (не вставляй его): ')
+            try:
+                value = subprocess.run(['/usr/bin/pbpaste'], check=True,
+                                       capture_output=True, text=True).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                print('Не удалось прочитать буфер обмена. Попробуй ещё раз.')
+                continue
+        else:
+            value = (getpass(prompt) if secret else input(prompt)).strip()
         if validator(value):
             print('Формат принят. Работоспособность проверим при подключении.')
             return value
@@ -20,13 +31,18 @@ def main():
         raise SystemExit('.env уже существует. Для изменения открой его локально; файл не перезаписан.')
     print('Создай бота через https://t.me/BotFather → /newbot.\n'
           'Ключи вводятся здесь скрыто и сохраняются только в локальный .env.')
-    print('При вставке ключей символы не видны. Вставь один раз и нажми Enter.')
+    clipboard = '--clipboard' in sys.argv
+    if clipboard:
+        print('Режим буфера обмена: ключи не вставляй. Копируй нужный ключ и нажимай Enter.\n'
+              'Буфер читается только после Enter; ключи не выводятся на экран и не отправляются в сеть.')
+    else:
+        print('При вставке ключей символы не видны. Вставь один раз и нажми Enter.')
     token = ask_valid('Telegram Bot Token: ',
                       lambda s: re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', s),
-                      'Нужен полный токен от BotFather: цифры, двоеточие и секретная часть.', True)
+                      'Нужен полный токен от BotFather: цифры, двоеточие и секретная часть.', True, clipboard)
     key = ask_valid('OpenAI API key: ',
                     lambda s: re.fullmatch(r'sk-[A-Za-z0-9_-]+', s),
-                    'Нужен полный секретный ключ OpenAI, начинающийся с sk-, без пробелов.', True)
+                    'Нужен полный секретный ключ OpenAI, начинающийся с sk-, без пробелов.', True, clipboard)
     uid = ask_valid('Твой числовой Telegram user ID: ',
                     lambda s: bool(re.fullmatch(r'[0-9]+', s)) and int(s) > 0,
                     'ID должен содержать только цифры, без букв, подписи Id и знака @.')
