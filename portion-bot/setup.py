@@ -5,12 +5,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 
 def ask_valid(prompt, validator, hint, secret=False, clipboard=False):
     while True:
         if secret and clipboard:
-            input(prompt + 'Скопируй ключ, затем нажми Enter здесь (не вставляй его): ')
+            getpass(prompt + 'Скопируй ключ, затем нажми Enter здесь (не вставляй его): ')
             try:
                 value = subprocess.run(['/usr/bin/pbpaste'], check=True,
                                        capture_output=True, text=True).stdout.strip()
@@ -25,8 +26,31 @@ def ask_valid(prompt, validator, hint, secret=False, clipboard=False):
         print(hint + ' Повтори ввод этого поля. Для выхода: Control+C.')
 
 
+def update_telegram(destination):
+    if not destination.exists():
+        raise SystemExit('Сначала выполни обычную настройку.')
+    token = ask_valid('Новый Telegram Bot Token: ',
+                      lambda s: re.fullmatch(r'[0-9]+:[A-Za-z0-9_-]+', s),
+                      'Нужен полный токен от BotFather.', True, '--clipboard' in sys.argv)
+    lines = destination.read_text().splitlines()
+    lines = [line for line in lines if not line.startswith('TELEGRAM_BOT_TOKEN=')]
+    lines.append('TELEGRAM_BOT_TOKEN=' + token)
+    fd, temporary = tempfile.mkstemp(prefix='.env-', dir=str(destination.parent))
+    try:
+        with os.fdopen(fd, 'w') as file:
+            file.write('\n'.join(lines) + '\n')
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print('Токен Telegram обновлён. Остальные настройки сохранены. Запуск: python3 bot.py')
+
+
 def main():
     destination = Path(__file__).resolve().parent / '.env'
+    if '--update-telegram' in sys.argv:
+        update_telegram(destination)
+        return
     if destination.exists():
         raise SystemExit('.env уже существует. Для изменения открой его локально; файл не перезаписан.')
     print('Создай бота через https://t.me/BotFather → /newbot.\n'
