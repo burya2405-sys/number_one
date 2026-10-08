@@ -2,6 +2,7 @@ import base64
 import json
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from nutrition import validate_estimate
 
 
@@ -17,6 +18,28 @@ def post_json(url, payload, headers=None, timeout=90):
             return json.load(response)
     except HTTPError as exc:
         # Never include URLs, tokens, image bytes or user data in errors.
+        if urlsplit(url).hostname == 'api.openai.com' and exc.code == 429:
+            try:
+                detail = json.loads(exc.read(65536)).get('error', {})
+                code = detail.get('code')
+                kind = detail.get('type')
+            except (ValueError, AttributeError, OSError):
+                code = kind = None
+            messages = {
+                'insufficient_quota': 'OpenAI API: недоступна квота. Владельцу бота нужно проверить баланс и лимиты в Billing и Limits на platform.openai.com. Подписка ChatGPT оплачивается отдельно.',
+                'billing_hard_limit_reached': 'OpenAI API: достигнут лимит расходов. Владельцу бота нужно проверить Billing и Limits.',
+                'organization_usage_limit_exceeded': 'OpenAI API: достигнут лимит использования организации. Проверь Limits в настройках OpenAI.',
+                'organization_spend_limit_exceeded': 'OpenAI API: достигнут лимит расходов организации. Проверь Limits в настройках OpenAI.',
+                'project_spend_limit_exceeded': 'OpenAI API: достигнут лимит расходов проекта. Проверь Limits проекта в настройках OpenAI.',
+                'rate_limit_exceeded': 'OpenAI API: временное ограничение частоты запросов. Подожди несколько минут перед повторным анализом.',
+                'slow_down': 'OpenAI API: запросы поступают слишком быстро. Подожди несколько минут перед повторным анализом.',
+            }
+            message = messages.get(code) if isinstance(code, str) else None
+            if not message and kind == 'insufficient_quota':
+                message = messages['insufficient_quota']
+            if not message:
+                message = 'OpenAI API вернул HTTP 429: ограничение запросов или квоты. Точную причину сервис не уточнил; проверь Billing и Limits.'
+            raise ServiceError(message) from None
         raise ServiceError('Сервис недоступен (HTTP %s).' % exc.code) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise ServiceError('Не удалось получить ответ сервиса. Попробуй ещё раз.') from None
